@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "osmem.h": "c"
+        "osmem.h": "c",
+        "DSD.C": "cpp"
     }
 }
