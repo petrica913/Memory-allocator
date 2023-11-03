@@ -4,7 +4,7 @@
 
 void *os_malloc(size_t size)
 {
-	/* TODO: Implement os_malloc */
+	/* TODO: Implement os_malloc   */
 	return NULL;
 }
 
