@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include "printf.h"
 
 #define DIE(assertion, call_description)									\
