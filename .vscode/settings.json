@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "osmem.h": "c",
-        "DSD.C": "cpp"
+        "DSD.C": "cpp",
+        "block_meta.h": "c"
     }
 }
