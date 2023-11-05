@@ -82,20 +82,45 @@ void *os_malloc(size_t size)
 	if (block_size < 0)
 		return NULL;
 	if (!global_base) {
-		block = request_space(NULL, size);
+		block = request_space(NULL, block_size);
 		if (!block)
 			return NULL;
 		global_base = block;
 	} else { //bad implementation
 		struct block_meta *last = global_base;
 		last = find_free_block(&last, block_size);
-		if (!last->next) {
+		if (!last->next && last->status != STATUS_FREE) { //if the last block of memory was already freed it will brk again
 			block = request_space(last, block_size);
 			if (!block)
 				return NULL;
 		} else {
 			//found a free block-> split the block here
-			block->status = STATUS_FREE;
+			// what happens if the block found doesnt have enough size
+			// to hold a bigger block: call sbrk again
+			size_t new_size;
+			struct block_meta *new;
+			if (size > last->size) {
+				new_size = ALIGN(size - last->size);
+				new = sbrk(new_size);
+				if (new == (void *) -1)
+					return NULL;
+				last->size += new_size;
+			}
+			if (size < last->size) {
+				size_t remaining_size = last->size - size;
+				// new = (struct block_meta*)((char *)last + last->size);
+				// new->size = remaining_size;
+				// new->status = STATUS_FREE;
+				// new->prev = last;
+				// new->next = last->next;
+				// if (last->next)
+				// 	last->next->prev = new;
+				// last->next = new;
+				// last->size = size;
+			}
+			
+			last->status = STATUS_ALLOC;
+			block = last;
 		}
 	}
 	return (block + 1);
@@ -113,7 +138,31 @@ void os_free(void *ptr) {
 
     if (block_ptr->status == STATUS_ALLOC) {
         // If it was allocated using brk(), use sbrk() to deallocate.
-        block_ptr->status = STATUS_FREE;
+		// but i got to verify if the block next to it is free or not to create a bigger block
+		// i got to iterate to the right and left to find free blocks to use
+		block_ptr->status = STATUS_FREE;
+		size_t totalSize = block_ptr->size;
+		struct block_meta *current = block_ptr->next;
+		while (current) {
+			if (current->status == STATUS_FREE) {
+				totalSize += current->size;
+				block_ptr->next = current->next;
+				current = current->next;
+			} else {
+				break;
+			}
+		}
+		current = block_ptr->prev;
+		while (current) {
+			if (current->status == STATUS_FREE) {
+				totalSize += current->size;
+				block_ptr->prev = current->prev;
+				current = current->prev;
+			} else {
+				break;
+			}
+		}
+		
     } else if (block_ptr->status == STATUS_MAPPED) {
         // If it was allocated using mmap(), use munmap() to deallocate.
         munmap(block_ptr, block_ptr->size + META_SIZE);
