@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdint.h>
 #include "block_meta.h"
 #include "osmem.h"
 
@@ -17,11 +18,22 @@ int ok = 0; //if the heap preallocation was made
 
 struct block_meta *find_free_block(struct block_meta **last, size_t size) { //have to search for a free a block
 	struct block_meta *current = global_base;
-	while (current && !(current->status && current->size >= size)) {
-		*last = current;
+	struct block_meta *best_fit = NULL;
+	struct block_meta *ultimate = NULL;
+	size_t best_fit_size = SIZE_MAX;
+	while (current) {
+		if (current->status == STATUS_FREE && current->size >= size) {
+			if (current->size < best_fit_size) {
+				best_fit = current;
+				best_fit_size = current->size;
+			}
+		}
+		ultimate = current;
 		current = current->next;
 	}
-	return current;
+	if (!best_fit)
+		best_fit = ultimate;
+	return best_fit;
 }
 
 struct block_meta *request_space (struct block_meta *last, size_t size) {
@@ -38,6 +50,7 @@ struct block_meta *request_space (struct block_meta *last, size_t size) {
 	if (size < MMAP_THRESHOLD && ok == 0) {
 		block = sbrk(MMAP_THRESHOLD);
 		ok++;
+		block->status = STATUS_ALLOC;
 		block->size = MMAP_THRESHOLD;
 		block->next = NULL;
 		block->prev = last;
@@ -75,8 +88,8 @@ void *os_malloc(size_t size)
 		global_base = block;
 	} else { //bad implementation
 		struct block_meta *last = global_base;
-		block = find_free_block(&last, block_size);
-		if (!block) {
+		last = find_free_block(&last, block_size);
+		if (!last->next) {
 			block = request_space(last, block_size);
 			if (!block)
 				return NULL;
