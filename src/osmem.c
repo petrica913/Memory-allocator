@@ -123,16 +123,20 @@ void *os_malloc(size_t size)
 			//found a free block-> split the block here
 			// what happens if the block found doesnt have enough size
 			// to hold a bigger block: call sbrk again
+			// SPLIT not correctly implemented => ifs are not correct
 			size_t new_size;
 			struct block_meta *new;
-			if (block_size > last->size) {
+			if (block_size >= last->size) {
 				new_size = ALIGN(block_size - last->size);
 				new = sbrk(new_size);
 				if (new == (void *) -1)
 					return NULL;
 				last->size += new_size;
+				last->status = STATUS_ALLOC;
+				block = last;
+				return (block + 1);
 			}
-			if (block_size <= last->size) { //see here when to call sbrk if the remaining size is not enough
+			if (block_size < last->size) { //see here when to call sbrk if the remaining size is not enough
 				size_t remaining_size = last->size - block_size;
 				if (remaining_size <= ALIGN(META_SIZE) + ALIGN(sizeof(char))) {
 					last->status = STATUS_ALLOC;
@@ -156,10 +160,20 @@ void *os_malloc(size_t size)
 				}
 
 				last->next = new_block;
+				last->status = STATUS_ALLOC;
+				block = last;
+				return (block + 1);
 			}
-			
-			last->status = STATUS_ALLOC;
-			block = last;
+			// if (block_size == last->size) {
+			// 	new_size = ALIGN(META_SIZE);
+			// 	new = sbrk(new_size);
+			// 	if (new == (void *)-1)
+			// 		return NULL;
+			// 	last->size += new_size;
+			// 	last->status = STATUS_ALLOC;
+			// 	block = last;
+			// 	return (block + 1);
+			// }
 		}
 	}
 	if (block_size >= MMAP_THRESHOLD) { //doesnt work because find_free_block searches in global_base
