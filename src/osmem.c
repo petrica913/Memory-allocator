@@ -27,26 +27,7 @@ struct block_meta *find_free_block(struct block_meta **last, size_t size) { //ha
 	struct block_meta *ultimate = NULL;
 	size_t best_fit_size = SIZE_MAX;
 
-	//how to line the free blocks
 	struct block_meta* ptr = NULL;
-	if (size < MMAP_THRESHOLD) {
-		while (current) {
-			if (current->status == STATUS_FREE) {
-				if (ptr == NULL) {
-					ptr = current;
-				} else {
-					ptr->size += current->size;
-					ptr->next = current->next;
-					if (current->next)
-						current->next->prev = ptr;
-				}
-				current = ptr->next;
-			} else {
-					current = current->next;
-				}
-		}
-		current = global_base;
-	}
 	while (current) {
 		if (current->status == STATUS_FREE && current->size >= size) {
 			if (current->size < best_fit_size) {
@@ -102,7 +83,6 @@ struct block_meta *request_space (struct block_meta *last, size_t size) {
 
 void *os_malloc(size_t size)
 {
-	/* TODO: Implement os_malloc */
 	struct block_meta *block;
 	size_t block_size = ALIGN(size);
 	if (block_size < 0)
@@ -115,68 +95,77 @@ void *os_malloc(size_t size)
 	} else if (size < MMAP_THRESHOLD) {
 		struct block_meta *last = global_base;
 		last = find_free_block(&last, block_size);
-		if (!last->next && last->status != STATUS_FREE) { //if the last block of memory was already freed it will brk again
-			block = request_space(last, block_size);
-			if (!block)
-				return NULL;
-		} else {
-			//found a free block-> split the block here
-			// what happens if the block found doesnt have enough size
-			// to hold a bigger block: call sbrk again
-			// SPLIT not correctly implemented => ifs are not correct
-			size_t new_size;
-			struct block_meta *new;
-			if (block_size >= last->size) {
-				new_size = ALIGN(block_size - last->size);
-				new = sbrk(new_size);
-				if (new == (void *) -1)
+		// lets check if the we are at the end of the list
+		if (!last->next) { //daca sunt la ultimul bloc din lista
+			if (last->status != STATUS_FREE) {
+				block = request_space(last, block_size);
+				if (!block)
 					return NULL;
-				last->size += new_size;
-				last->status = STATUS_ALLOC;
-				block = last;
 				return (block + 1);
 			}
-			if (block_size < last->size) { //see here when to call sbrk if the remaining size is not enough
-				size_t remaining_size = last->size - block_size;
-				if (remaining_size <= ALIGN(META_SIZE) + ALIGN(sizeof(char))) {
+			if (last->status == STATUS_FREE) {
+				struct block_meta *new;
+				int dim = block_size - last->size;
+				if (dim > 0) {
+					new = sbrk(ALIGN(dim));
+					last->size += dim;
 					last->status = STATUS_ALLOC;
-					block = last;
-					return (block + 1);
+					return last + 1;
+				} 
+				if (dim == 0) {
+					last->status = STATUS_ALLOC;
+					return last + 1;
 				}
-				// HOW TO SPLIT THE BLOCK?
-				last->size = block_size + ALIGN(META_SIZE);
-
-				// Calculate the address of the new free block
-				struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
-				
-				new_block->status = STATUS_FREE;
-				new_block->size = ALIGN(remaining_size) - ALIGN(META_SIZE);
-				new_block->prev = last;
-				new_block->next = last->next;
-
-				// Update the next block's prev pointer if it exists
-				if (last->next) {
-					last->next->prev = new_block;
+				if (dim < 0) {
+					dim = (-1) * dim;
 				}
-
-				last->next = new_block;
-				last->status = STATUS_ALLOC;
-				block = last;
-				return (block + 1);
 			}
-			// if (block_size == last->size) {
-			// 	new_size = ALIGN(META_SIZE);
-			// 	new = sbrk(new_size);
-			// 	if (new == (void *)-1)
-			// 		return NULL;
-			// 	last->size += new_size;
-			// 	last->status = STATUS_ALLOC;
-			// 	block = last;
-			// 	return (block + 1);
-			// }
 		}
+		int dim = last->size - block_size - ALIGN(META_SIZE) - ALIGN(1);
+		if (last && block_size <= last->size && last->status == STATUS_FREE) {
+			last->status = STATUS_ALLOC;
+			return (last + 1);
+		}
+		// if (!last->next && last->status != STATUS_FREE) { //if the last block of memory wasnt already freed it will brk again
+		// 	block = request_space(last, block_size);
+		// 	if (!block)
+		// 		return NULL;
+		// } else {
+		// 	size_t new_size;
+		// 	struct block_meta *new;
+		// 	if (!last->next && last->status == STATUS_FREE && block_size >= last->size - ALIGN(META_SIZE)) {
+		// 		new_size = block_size - last->size + ALIGN(META_SIZE);
+		// 		new = sbrk(new_size);
+		// 		last->size += new_size;
+		// 		last->status = STATUS_ALLOC;
+		// 		block = last;
+		// 		return (block + 1);
+		// 	}
+		// 	if (block_size < last->size) {
+		// 		size_t remaining_size = last->size - block_size;
+		// 		if (remaining_size <= ALIGN(META_SIZE) + ALIGN(sizeof(char))) {
+		// 			last->status = STATUS_ALLOC;
+		// 			block = last;
+		// 			return (block + 1);
+		// 		}
+		// 		last->size = block_size + ALIGN(META_SIZE);
+		// 		struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
+		// 		new_block->status = STATUS_FREE;
+		// 		new_block->size = (remaining_size) - ALIGN(META_SIZE);
+		// 		new_block->prev = last;
+		// 		new_block->next = last->next;
+		// 		if (last->next) {
+		// 			last->next->prev = new_block;
+		// 		}
+
+		// 		last->next = new_block;
+		// 		last->status = STATUS_ALLOC;
+		// 		block = last;
+		// 		return (block + 1);
+		// 	}
+		// }
 	}
-	if (block_size >= MMAP_THRESHOLD) { //doesnt work because find_free_block searches in global_base
+	if (block_size >= MMAP_THRESHOLD) {
 			if (!mapped_blocks) {
 				block = request_space(NULL, block_size);
 				if (!block)
@@ -205,7 +194,20 @@ void os_free(void *ptr) {
 
     if (block_ptr->status == STATUS_ALLOC) {
 		block_ptr->status = STATUS_FREE;
-		//block_ptr->size = 0;
+		if (block_ptr->prev && block_ptr->prev->status == STATUS_FREE) {
+			struct block_meta *aux_ptr = block_ptr->next;
+			block_ptr->prev->size += block_ptr->size;
+			block_ptr->prev->next = block_ptr->next;
+			if (aux_ptr)
+				aux_ptr->prev = block_ptr->prev;
+		}
+		if (block_ptr->next && block_ptr->next->status == STATUS_FREE) {
+			struct block_meta *aux_ptr = block_ptr->prev;
+			block_ptr->next->size += block_ptr->size;
+			block_ptr->next->prev = block_ptr->prev;
+			if (aux_ptr)
+				aux_ptr->next = block_ptr->next;
+		}
 		
     } else if (block_ptr->status == STATUS_MAPPED) {
 		if (block_ptr == mapped_blocks) {
