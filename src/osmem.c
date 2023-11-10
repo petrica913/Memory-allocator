@@ -136,14 +136,14 @@ void *os_malloc(size_t size)
 		}
 		if (block_size <= last->size) {
 			size_t remaining_size = last->size - block_size;
-			if (remaining_size < ALIGN(META_SIZE) + ALIGN(sizeof(char))) { //cand dai sbrk?
+			if (remaining_size < ALIGN(META_SIZE) + ALIGN(1)) {
 				last->status = STATUS_ALLOC;
 				block = last;
 				return (block + 1);
 			}
 			struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
 			new_block->status = STATUS_FREE;
-			new_block->size = last->size - block_size - META_SIZE;
+			new_block->size = last->size - block_size - ALIGN(META_SIZE) - ALIGN(1);
 			new_block->prev = last;
 			new_block->next = last->next;
 			if (last->next) {
