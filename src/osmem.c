@@ -95,8 +95,7 @@ void *os_malloc(size_t size)
 	} else if (size < MMAP_THRESHOLD) {
 		struct block_meta *last = global_base;
 		last = find_free_block(&last, block_size);
-		// lets check if the we are at the end of the list
-		if (!last->next) { //daca sunt la ultimul bloc din lista
+		if (!last->next) {
 			if (last->status != STATUS_FREE) {
 				block = request_space(last, block_size);
 				if (!block)
@@ -118,52 +117,44 @@ void *os_malloc(size_t size)
 				}
 				if (dim < 0) {
 					dim = (-1) * dim;
+					if (dim < ALIGN(META_SIZE) + ALIGN(1)) {
+						last->status = STATUS_ALLOC;
+						return last + 1;
+					} else {
+						struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
+						new_block->status = STATUS_FREE;
+						new_block->size = last->size - block_size - META_SIZE;
+						new_block->prev = last;
+						new_block->next = last->next;
+						last->size = block_size;
+						last->next = new_block;
+						last->status = STATUS_ALLOC;
+						return last + 1;
+					}
 				}
 			}
 		}
-		int dim = last->size - block_size - ALIGN(META_SIZE) - ALIGN(1);
-		if (last && block_size <= last->size && last->status == STATUS_FREE) {
+		if (block_size <= last->size) {
+			size_t remaining_size = last->size - block_size;
+			if (remaining_size < ALIGN(META_SIZE) + ALIGN(sizeof(char))) { //cand dai sbrk?
+				last->status = STATUS_ALLOC;
+				block = last;
+				return (block + 1);
+			}
+			struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
+			new_block->status = STATUS_FREE;
+			new_block->size = last->size - block_size - META_SIZE;
+			new_block->prev = last;
+			new_block->next = last->next;
+			if (last->next) {
+				last->next->prev = new_block;
+			}
+			last->size = block_size;
+			last->next = new_block;
 			last->status = STATUS_ALLOC;
-			return (last + 1);
+			block = last;
+			return (block + 1);
 		}
-		// if (!last->next && last->status != STATUS_FREE) { //if the last block of memory wasnt already freed it will brk again
-		// 	block = request_space(last, block_size);
-		// 	if (!block)
-		// 		return NULL;
-		// } else {
-		// 	size_t new_size;
-		// 	struct block_meta *new;
-		// 	if (!last->next && last->status == STATUS_FREE && block_size >= last->size - ALIGN(META_SIZE)) {
-		// 		new_size = block_size - last->size + ALIGN(META_SIZE);
-		// 		new = sbrk(new_size);
-		// 		last->size += new_size;
-		// 		last->status = STATUS_ALLOC;
-		// 		block = last;
-		// 		return (block + 1);
-		// 	}
-		// 	if (block_size < last->size) {
-		// 		size_t remaining_size = last->size - block_size;
-		// 		if (remaining_size <= ALIGN(META_SIZE) + ALIGN(sizeof(char))) {
-		// 			last->status = STATUS_ALLOC;
-		// 			block = last;
-		// 			return (block + 1);
-		// 		}
-		// 		last->size = block_size + ALIGN(META_SIZE);
-		// 		struct block_meta *new_block = (struct block_meta *)((char *)(last + 1) + block_size);
-		// 		new_block->status = STATUS_FREE;
-		// 		new_block->size = (remaining_size) - ALIGN(META_SIZE);
-		// 		new_block->prev = last;
-		// 		new_block->next = last->next;
-		// 		if (last->next) {
-		// 			last->next->prev = new_block;
-		// 		}
-
-		// 		last->next = new_block;
-		// 		last->status = STATUS_ALLOC;
-		// 		block = last;
-		// 		return (block + 1);
-		// 	}
-		// }
 	}
 	if (block_size >= MMAP_THRESHOLD) {
 			if (!mapped_blocks) {
