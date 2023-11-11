@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <string.h>
 #include "block_meta.h"
 #include "osmem.h"
 
@@ -48,6 +49,7 @@ struct block_meta *request_space (struct block_meta *last, size_t size) {
 	if (size == 0)
 		return NULL;
 	struct block_meta *block;
+	block = last;
 	void *request;
 	if (size + META_SIZE < dimension && ok != 0) {
 		block = sbrk(META_SIZE + size);
@@ -194,7 +196,7 @@ void os_free(void *ptr) {
 			if (aux_ptr)
 				aux_ptr->prev = block_ptr->prev;
 		}
-		if (block_ptr->next && block_ptr->next->status == STATUS_FREE) { //might be wrong
+		if (block_ptr->next && block_ptr->next->status == STATUS_FREE) {
 			struct block_meta *aux_ptr = block_ptr->prev;
 			block_ptr->next->size += block_ptr->size + + ALIGN(META_SIZE);
 			block_ptr->next->prev = block_ptr->prev;
@@ -323,6 +325,53 @@ void *os_calloc(size_t nmemb, size_t size)
 
 void *os_realloc(void *ptr, size_t size)
 {
-	/* TODO: Implement os_realloc */
+	struct block_meta *block = get_block_ptr(ptr);
+	size_t block_size = ALIGN(size);
+	if (!size) {
+		os_free(ptr);
+		return NULL;
+	}
+	if (!ptr) {
+		block = find_free_block(&global_base, size);
+		block = os_malloc(size);
+		struct block_meta *test = get_block_ptr(block);
+		return block;
+	}
+	if (block->status == STATUS_MAPPED) {
+			struct block_meta *new = os_malloc(size);
+			memcpy(new, block + 1, ALIGN(size) + ALIGN(META_SIZE) + ALIGN(1));
+			os_free(ptr);
+			return new;
+		}
+	if (block->status == STATUS_ALLOC && size <= block->size) {
+		return block + 1;
+	}
+	if (block->status == STATUS_FREE)
+		return NULL;
+	if (block->status == STATUS_ALLOC) { //mai intai verficam daca avem block gol adiacent
+		if (block->next) {
+			if (block->next->status == STATUS_FREE) {
+				block->size += block->next->size + ALIGN(META_SIZE);
+				struct block_meta *aux = block->next;
+				if (aux) {
+					block->next = aux->next;
+					aux->prev = block;
+				} else {
+					block->next = NULL;
+				}
+			}
+		}
+		if (size <= block->size) {
+			return block + 1;
+		}
+		
+		// if i am reallocating a block from the end of the list
+		struct block_meta *new;
+		new = os_malloc(size);
+		memmove(new, block + 1, block->size + ALIGN(1) + ALIGN(META_SIZE));
+		os_free(ptr);
+		block->status = STATUS_FREE;
+		return new;
+	}
 	return NULL;
 }
