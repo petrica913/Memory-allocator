@@ -17,10 +17,10 @@
 void *global_base = NULL;
 int ok = 0; //if the heap preallocation was made
 void *mapped_blocks = NULL; //list for holding the mapped blocks
-size_t dimension = NULL;
+size_t dimension = 0;
 
 struct block_meta *find_free_block(struct block_meta **last, size_t size) { //have to search for a free a block
-	struct block_meta *current;
+	struct block_meta *current = (struct block_meta *)last;
 	if (size >= dimension)
 		current = mapped_blocks;
 	if (size < dimension)
@@ -28,8 +28,6 @@ struct block_meta *find_free_block(struct block_meta **last, size_t size) { //ha
 	struct block_meta *best_fit = NULL;
 	struct block_meta *ultimate = NULL;
 	size_t best_fit_size = SIZE_MAX;
-
-	struct block_meta* ptr = NULL;
 	while (current) {
 		if (current->status == STATUS_FREE && current->size >= size) {
 			if (current->size < best_fit_size) {
@@ -45,7 +43,7 @@ struct block_meta *find_free_block(struct block_meta **last, size_t size) { //ha
 	return best_fit;
 }
 
-struct block_meta *request_space (struct block_meta *last, size_t size) {
+struct block_meta *request_space(struct block_meta *last, size_t size) {
 	if (size == 0)
 		return NULL;
 	struct block_meta *block;
@@ -68,7 +66,7 @@ struct block_meta *request_space (struct block_meta *last, size_t size) {
 	}
 	if (size + META_SIZE >= dimension) {
 		request = mmap(NULL, size + META_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		block = (struct block_metadata*) request;
+		block = (struct block_meta*) request;
 		assert((void*)block == request);
 		if (request == (void*) -1)
 			return NULL;
@@ -89,8 +87,6 @@ void *os_malloc(size_t size)
 	dimension = MMAP_THRESHOLD;
 	struct block_meta *block;
 	size_t block_size = ALIGN(size);
-	if (block_size < 0)
-		return NULL;
 	if (!global_base && block_size < MMAP_THRESHOLD) {
 		block = request_space(NULL, block_size);
 		if (!block)
@@ -108,20 +104,21 @@ void *os_malloc(size_t size)
 			}
 			if (last->status == STATUS_FREE) {
 				struct block_meta *new;
-				int dim = block_size - last->size;
+				int dim = (int)(block_size - last->size);
 				if (dim > 0) {
 					new = sbrk(ALIGN(dim));
 					last->size += dim;
 					last->status = STATUS_ALLOC;
-					return last + 1;
-				} 
+					new = last;
+					return new + 1;
+				}
 				if (dim == 0) {
 					last->status = STATUS_ALLOC;
 					return last + 1;
 				}
 				if (dim < 0) {
 					dim = (-1) * dim;
-					if (dim < ALIGN(META_SIZE) + ALIGN(1)) {
+					if (dim < (int)(ALIGN(META_SIZE) + ALIGN(1))) {
 						last->status = STATUS_ALLOC;
 						return last + 1;
 					} else {
@@ -185,7 +182,7 @@ void os_free(void *ptr) {
 
     struct block_meta *block_ptr = get_block_ptr(ptr);
 	if (!block_ptr)
-		return NULL;
+		return;
 
     if (block_ptr->status == STATUS_ALLOC) {
 		block_ptr->status = STATUS_FREE;
@@ -203,13 +200,13 @@ void os_free(void *ptr) {
 			if (aux_ptr)
 				aux_ptr->next = block_ptr->next;
 		}
-		
     } else if (block_ptr->status == STATUS_MAPPED) {
 		if (block_ptr == mapped_blocks) {
             mapped_blocks = block_ptr->next;
         } else {
-			if (block_ptr->prev)
+			if (block_ptr->prev) {
             	block_ptr->prev->next = block_ptr->next;
+			}
             if (block_ptr->next) {
                 block_ptr->next->prev = block_ptr->prev;
             }
@@ -228,14 +225,12 @@ void *os_calloc(size_t nmemb, size_t size)
 	dimension = page_size;
 	struct block_meta *block;
 	size_t block_size = ALIGN(size);
-	if (block_size < 0)
-		return NULL;
-	if (!global_base && block_size < page_size) {
+	if (!global_base && block_size < (size_t)page_size) {
 		block = request_space(NULL, block_size);
 		if (!block)
 			return NULL;
 		global_base = block;
-	} else if (size < page_size) {
+	} else if (size < (size_t)page_size) {
 		struct block_meta *last = global_base;
 		last = find_free_block(&last, block_size);
 		if (!last->next) {
@@ -250,13 +245,13 @@ void *os_calloc(size_t nmemb, size_t size)
 				struct block_meta *new;
 				int dim = block_size - last->size;
 				if (dim > 0) {
-					struct block_meta *current = sbrk(0);
 					new = sbrk(ALIGN(dim));
 					last->size += dim;
 					last->status = STATUS_ALLOC;
 					memset(last + 1, 0, last->size);
-					return last + 1;
-				} 
+					new = last;
+					return new + 1;
+				}
 				if (dim == 0) {
 					last->status = STATUS_ALLOC;
 					memset(last + 1, 0, last->size);
@@ -264,7 +259,7 @@ void *os_calloc(size_t nmemb, size_t size)
 				}
 				if (dim < 0) {
 					dim = (-1) * dim;
-					if (dim < ALIGN(META_SIZE) + ALIGN(1)) {
+					if ((size_t)dim < ALIGN(META_SIZE) + ALIGN(1)) {
 						last->status = STATUS_ALLOC;
 						memset(last + 1, 0, last->size);
 						return last + 1;
@@ -307,7 +302,7 @@ void *os_calloc(size_t nmemb, size_t size)
 			return (block + 1);
 		}
 	}
-	if (block_size >= page_size) {
+	if (block_size >= (size_t)page_size) {
 			if (!mapped_blocks) {
 				block = request_space(NULL, block_size);
 				if (!block)
@@ -332,7 +327,8 @@ void *os_realloc(void *ptr, size_t size)
 		return NULL;
 	}
 	if (!ptr) {
-		block = find_free_block(&global_base, size);
+		struct block_meta *base = (struct block_meta *) global_base;
+		block = find_free_block(&base, size);
 		if (block) {
 			if (block->status == STATUS_FREE && size <= block_size){
 				size_t remaining_size = block->size - block_size;
@@ -355,7 +351,6 @@ void *os_realloc(void *ptr, size_t size)
 			}
 		}
 		block = os_malloc(size);
-		struct block_meta *test = get_block_ptr(block);
 		return block;
 	}
 	if (block->status == STATUS_MAPPED) {
@@ -402,8 +397,14 @@ void *os_realloc(void *ptr, size_t size)
 			return (block + 1);
 		}
 		if (!block->next && size > block->size) {
-			struct block_meta *new;
-			//new = find_free_block()
+			struct block_meta *new, *best_fit;
+			best_fit = find_free_block(global_base, size);
+			if (best_fit->status == STATUS_FREE) {
+				memmove(best_fit, block, block->size + ALIGN(1) + ALIGN(META_SIZE));
+				os_free(ptr);
+				block->status = STATUS_FREE;
+				return best_fit + 1;
+			}
 			new = request_space(block, ALIGN(size) - block->size - ALIGN(META_SIZE));
 			block->size = ALIGN(size);
 			os_free(new);
