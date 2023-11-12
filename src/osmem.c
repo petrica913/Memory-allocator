@@ -333,6 +333,27 @@ void *os_realloc(void *ptr, size_t size)
 	}
 	if (!ptr) {
 		block = find_free_block(&global_base, size);
+		if (block) {
+			if (block->status == STATUS_FREE && size <= block_size){
+				size_t remaining_size = block->size - block_size;
+				if (remaining_size < ALIGN(META_SIZE) + ALIGN(1)) {
+					block->status = STATUS_ALLOC;
+					return (block + 1);
+				}
+				struct block_meta *new_block = (struct block_meta *)((char *)(block + 1) + block_size);
+				new_block->status = STATUS_FREE;
+				new_block->size = block->size - block_size - ALIGN(META_SIZE) - ALIGN(1);
+				new_block->prev = block;
+				new_block->next = block->next;
+				if (block->next) {
+					block->next->prev = new_block;
+				}
+				block->size = block_size;
+				block->next = new_block;
+				block->status = STATUS_ALLOC;
+				return (block + 1);
+			}
+		}
 		block = os_malloc(size);
 		struct block_meta *test = get_block_ptr(block);
 		return block;
@@ -348,7 +369,7 @@ void *os_realloc(void *ptr, size_t size)
 	}
 	if (block->status == STATUS_FREE)
 		return NULL;
-	if (block->status == STATUS_ALLOC) { //mai intai verficam daca avem block gol adiacent
+	if (block->status == STATUS_ALLOC) {
 		if (block->next) {
 			if (block->next->status == STATUS_FREE) {
 				block->size += block->next->size + ALIGN(META_SIZE);
@@ -362,10 +383,35 @@ void *os_realloc(void *ptr, size_t size)
 			}
 		}
 		if (size <= block->size) {
+			size_t remaining_size = block->size - block_size;
+			if (remaining_size < ALIGN(META_SIZE) + ALIGN(1)) {
+				block->status = STATUS_ALLOC;
+				return (block + 1);
+			}
+			struct block_meta *new_block = (struct block_meta *)((char *)(block + 1) + block_size);
+			new_block->status = STATUS_FREE;
+			new_block->size = block->size - block_size - ALIGN(META_SIZE) - ALIGN(1);
+			new_block->prev = block;
+			new_block->next = block->next;
+			if (block->next) {
+				block->next->prev = new_block;
+			}
+			block->size = block_size;
+			block->next = new_block;
+			block->status = STATUS_ALLOC;
+			return (block + 1);
+		}
+		if (!block->next && size > block->size) {
+			struct block_meta *new;
+			//new = find_free_block()
+			new = request_space(block, ALIGN(size) - block->size - ALIGN(META_SIZE));
+			block->size = ALIGN(size);
+			os_free(new);
+			block->next = NULL;
 			return block + 1;
 		}
-		
-		// if i am reallocating a block from the end of the list
+		//before trying to put a block at the end of the list find the most apropriate one in the list to the size needed
+		//and then split it again
 		struct block_meta *new;
 		new = os_malloc(size);
 		memmove(new, block + 1, block->size + ALIGN(1) + ALIGN(META_SIZE));
